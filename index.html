@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Threadly Chat</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="setupView" class="setup-view hidden">
+        <div class="setup-panel">
+          <p class="eyebrow">GitHub Pages ready</p>
+          <h1>Threadly Chat</h1>
+          <p class="muted">
+            Paste your Firebase web config once. The app stores it in this browser and uses Firestore for live chats.
+          </p>
+          <form id="configForm" class="stack">
+            <label>
+              Firebase config JSON
+              <textarea
+                id="firebaseConfig"
+                spellcheck="false"
+                placeholder='{"apiKey":"...","authDomain":"...","projectId":"...","appId":"..."}'
+                required
+              ></textarea>
+            </label>
+            <button type="submit">Save config</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="accountView" class="account-view hidden">
+        <div class="setup-panel">
+          <p class="eyebrow">No email required</p>
+          <h1>Choose a username</h1>
+          <p class="muted">Friends can start a thread with you using this name.</p>
+          <form id="usernameForm" class="stack">
+            <label>
+              Username
+              <input id="usernameInput" autocomplete="username" maxlength="24" placeholder="theo" required />
+            </label>
+            <button type="submit">Create account</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="chatView" class="chat-view hidden">
+        <aside class="sidebar">
+          <div class="brand-row">
+            <div>
+              <p class="eyebrow">Threadly</p>
+              <h1>Chats</h1>
+            </div>
+            <button id="signOutButton" class="icon-button" title="Sign out" aria-label="Sign out">↪</button>
+          </div>
+
+          <form id="threadForm" class="thread-form">
+            <label>
+              Start a chat
+              <div class="inline-control">
+                <input id="friendUsername" maxlength="24" placeholder="friend username" required />
+                <button type="submit" title="Create thread" aria-label="Create thread">+</button>
+              </div>
+            </label>
+          </form>
+
+          <div class="profile-card">
+            <span>Your username</span>
+            <strong id="currentUsername"></strong>
+          </div>
+
+          <div id="threadList" class="thread-list" aria-label="Chat threads"></div>
+        </aside>
+
+        <section class="conversation">
+          <header class="conversation-header">
+            <div>
+              <p class="eyebrow">Thread</p>
+              <h2 id="conversationTitle">Pick a conversation</h2>
+            </div>
+          </header>
+
+          <div id="messages" class="messages">
+            <div class="empty-state">Create or select a chat thread to begin.</div>
+          </div>
+
+          <form id="messageForm" class="message-form">
+            <input id="messageInput" maxlength="1000" placeholder="Type a message" disabled required />
+            <button id="sendButton" type="submit" disabled>Send</button>
+          </form>
+        </section>
+      </section>
+
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    </main>
+
+    <script src="./firebase-config.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
