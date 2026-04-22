@@ -6,22 +6,20 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
-  addDoc,
-  collection,
-  doc,
-  getDoc,
-  getFirestore,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
+  child,
+  get,
+  getDatabase,
+  off,
+  onValue,
+  push,
+  ref,
   runTransaction,
   serverTimestamp,
-  setDoc,
-  where,
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+  set,
+  update,
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
 
-const CONFIG_KEY = "threadly.firebaseConfig";
+const CONFIG_KEY = "namechat.firebaseConfig";
 
 const setupView = document.querySelector("#setupView");
 const accountView = document.querySelector("#accountView");
@@ -47,15 +45,15 @@ let auth;
 let db;
 let me = null;
 let activeThread = null;
-let unsubscribeThreads = null;
-let unsubscribeMessages = null;
+let threadListenerRef = null;
+let messagesListenerRef = null;
 let toastTimer = null;
 
 configForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
   try {
-    const config = JSON.parse(firebaseConfig.value.trim());
+    const config = normalizeFirebaseConfig(parseFirebaseConfig(firebaseConfig.value));
     requireConfigKeys(config);
     localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
     boot(config);
@@ -123,21 +121,27 @@ messageForm.addEventListener("submit", async (event) => {
 
   messageInput.value = "";
   sendButton.disabled = true;
+
   try {
-    await addDoc(collection(db, "threads", activeThread.id, "messages"), {
+    const messageRef = push(ref(db, `messages/${activeThread.id}`));
+    const message = {
       createdAt: serverTimestamp(),
       senderId: me.uid,
       senderUsername: me.username,
       text,
+    };
+
+    await set(messageRef, message);
+    await update(ref(db, `threads/${activeThread.id}`), {
+      lastMessage: text,
+      updatedAt: serverTimestamp(),
     });
-    await setDoc(
-      doc(db, "threads", activeThread.id),
-      {
-        lastMessage: text,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
+    await update(ref(db), {
+      [`userThreads/${me.uid}/${activeThread.id}/lastMessage`]: text,
+      [`userThreads/${me.uid}/${activeThread.id}/updatedAt`]: serverTimestamp(),
+      [`userThreads/${getFriendId(activeThread)}/${activeThread.id}/lastMessage`]: text,
+      [`userThreads/${getFriendId(activeThread)}/${activeThread.id}/updatedAt`]: serverTimestamp(),
+    });
   } catch (error) {
     messageInput.value = text;
     showToast(error.message || "Message could not be sent.");
@@ -158,8 +162,8 @@ signOutButton.addEventListener("click", async () => {
 bootFromStorage();
 
 function bootFromStorage() {
-  if (window.THREADLY_FIREBASE_CONFIG) {
-    boot(window.THREADLY_FIREBASE_CONFIG);
+  if (window.NAMECHAT_FIREBASE_CONFIG) {
+    boot(normalizeFirebaseConfig(window.NAMECHAT_FIREBASE_CONFIG));
     return;
   }
 
@@ -170,7 +174,7 @@ function bootFromStorage() {
   }
 
   try {
-    boot(JSON.parse(savedConfig));
+    boot(normalizeFirebaseConfig(JSON.parse(savedConfig)));
   } catch (error) {
     localStorage.removeItem(CONFIG_KEY);
     showSetup();
@@ -181,7 +185,7 @@ function bootFromStorage() {
 function boot(config) {
   app = initializeApp(config);
   auth = getAuth(app);
-  db = getFirestore(app);
+  db = getDatabase(app);
 
   onAuthStateChanged(auth, async (user) => {
     try {
@@ -224,10 +228,10 @@ function showChat() {
 }
 
 async function loadProfile(uid) {
-  const profile = await getDoc(doc(db, "users", uid));
+  const profile = await get(ref(db, `users/${uid}`));
   if (!profile.exists()) return false;
 
-  me = { uid, ...profile.data() };
+  me = { uid, ...profile.val() };
   return true;
 }
 
@@ -235,80 +239,83 @@ async function claimUsername(username) {
   const user = auth.currentUser;
   if (!user) throw new Error("You are not signed in yet.");
 
-  const usernameRef = doc(db, "usernames", username);
-  const userRef = doc(db, "users", user.uid);
-
-  await runTransaction(db, async (transaction) => {
-    const claimed = await transaction.get(usernameRef);
-    if (claimed.exists() && claimed.data().uid !== user.uid) {
-      throw new Error("That username is already taken.");
-    }
-
-    transaction.set(usernameRef, {
+  const usernameRef = ref(db, `usernames/${username}`);
+  const result = await runTransaction(usernameRef, (current) => {
+    if (current && current.uid !== user.uid) return;
+    return {
       uid: user.uid,
       username,
-      createdAt: serverTimestamp(),
-    });
-    transaction.set(userRef, {
-      uid: user.uid,
-      username,
-      usernameLower: username,
-      createdAt: serverTimestamp(),
-    });
+      createdAt: current?.createdAt || serverTimestamp(),
+    };
+  });
+
+  if (!result.committed) {
+    throw new Error("That username is already taken.");
+  }
+
+  await set(ref(db, `users/${user.uid}`), {
+    uid: user.uid,
+    username,
+    createdAt: serverTimestamp(),
   });
 }
 
 async function findUserByUsername(username) {
-  const usernameSnap = await getDoc(doc(db, "usernames", username));
+  const usernameSnap = await get(ref(db, `usernames/${username}`));
   if (!usernameSnap.exists()) return null;
 
-  const userSnap = await getDoc(doc(db, "users", usernameSnap.data().uid));
+  const uid = usernameSnap.val().uid;
+  const userSnap = await get(ref(db, `users/${uid}`));
   if (!userSnap.exists()) return null;
 
-  return { uid: userSnap.id, ...userSnap.data() };
+  return { uid, ...userSnap.val() };
 }
 
 async function createOrGetThread(friend) {
   const members = [me.uid, friend.uid].sort();
   const id = members.join("_");
-  const threadRef = doc(db, "threads", id);
-  const now = serverTimestamp();
+  const threadRef = ref(db, `threads/${id}`);
+  const existing = await get(threadRef);
 
-  await setDoc(
-    threadRef,
-    {
+  if (!existing.exists()) {
+    const thread = {
       id,
       members,
+      memberMap: {
+        [me.uid]: true,
+        [friend.uid]: true,
+      },
       usernames: {
         [me.uid]: me.username,
         [friend.uid]: friend.username,
       },
-      updatedAt: now,
-      createdAt: now,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       lastMessage: "",
-    },
-    { merge: true },
-  );
+    };
+    await set(threadRef, thread);
+    await update(ref(db), {
+      [`userThreads/${me.uid}/${id}`]: userThreadSummary(thread, friend.uid),
+      [`userThreads/${friend.uid}/${id}`]: userThreadSummary(thread, me.uid),
+    });
+  }
 
-  const threadSnap = await getDoc(threadRef);
-  return { id, ...threadSnap.data() };
+  const threadSnap = await get(threadRef);
+  return { id, ...threadSnap.val() };
 }
 
 function listenForThreads() {
-  unsubscribeThreads?.();
+  if (threadListenerRef) off(threadListenerRef);
 
-  const threadsQuery = query(
-    collection(db, "threads"),
-    where("members", "array-contains", me.uid),
-    limit(50),
-  );
-
-  unsubscribeThreads = onSnapshot(
-    threadsQuery,
+  threadListenerRef = ref(db, `userThreads/${me.uid}`);
+  onValue(
+    threadListenerRef,
     (snapshot) => {
-      const threads = snapshot.docs
-        .map((item) => ({ id: item.id, ...item.data() }))
-        .sort((a, b) => timestampMillis(b.updatedAt) - timestampMillis(a.updatedAt));
+      const threads = Object.entries(snapshot.val() || {})
+        .map(([id, thread]) => ({ id, ...thread }))
+        .sort((a, b) => timestampMillis(b.updatedAt) - timestampMillis(a.updatedAt))
+        .slice(0, 50);
+
       renderThreads(threads);
 
       if (activeThread) {
@@ -332,7 +339,7 @@ function renderThreads(threads) {
   }
 
   for (const thread of threads) {
-    const friendId = thread.members.find((uid) => uid !== me.uid);
+    const friendId = getFriendId(thread);
     const name = thread.usernames?.[friendId] || "Friend";
     const button = document.createElement("button");
     button.className = `thread-button ${activeThread?.id === thread.id ? "active" : ""}`;
@@ -348,26 +355,24 @@ function renderThreads(threads) {
 
 function openThread(thread) {
   activeThread = thread;
-  const friendId = thread.members.find((uid) => uid !== me.uid);
+  const friendId = getFriendId(thread);
   conversationTitle.textContent = thread.usernames?.[friendId] || "Friend";
   messageInput.disabled = false;
   sendButton.disabled = !messageInput.value.trim();
   messageInput.focus();
 
-  for (const button of threadList.querySelectorAll(".thread-button")) {
-    button.classList.remove("active");
-  }
+  if (messagesListenerRef) off(messagesListenerRef);
 
-  unsubscribeMessages?.();
-  const messagesQuery = query(
-    collection(db, "threads", thread.id, "messages"),
-    orderBy("createdAt", "asc"),
-    limit(200),
-  );
-
-  unsubscribeMessages = onSnapshot(
-    messagesQuery,
-    (snapshot) => renderMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+  messagesListenerRef = ref(db, `messages/${thread.id}`);
+  onValue(
+    messagesListenerRef,
+    (snapshot) => {
+      const items = Object.entries(snapshot.val() || {})
+        .map(([id, message]) => ({ id, ...message }))
+        .sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt))
+        .slice(-200);
+      renderMessages(items);
+    },
     (error) => showToast(error.message || "Could not load messages."),
   );
 }
@@ -403,10 +408,36 @@ function renderMessages(items) {
 }
 
 function requireConfigKeys(config) {
-  const required = ["apiKey", "authDomain", "projectId", "appId"];
+  const required = ["apiKey", "authDomain", "projectId", "appId", "databaseURL"];
   const missing = required.filter((key) => !config[key]);
   if (missing.length) {
     throw new Error(`Missing Firebase config value: ${missing.join(", ")}`);
+  }
+}
+
+function normalizeFirebaseConfig(config) {
+  if (config.databaseURL) return config;
+  return {
+    ...config,
+    databaseURL: `https://${config.projectId}-default-rtdb.firebaseio.com`,
+  };
+}
+
+function parseFirebaseConfig(value) {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("Paste your Firebase config first.");
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (!objectMatch) throw new Error("Could not find a Firebase config object.");
+
+    const asJson = objectMatch[0]
+      .replace(/([{,]\s*)([a-zA-Z_$][\w$]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/,\s*}/g, "}");
+
+    return JSON.parse(asJson);
   }
 }
 
@@ -442,7 +473,21 @@ function escapeHtml(value) {
 }
 
 function timestampMillis(timestamp) {
-  if (!timestamp) return 0;
-  if (typeof timestamp.toMillis === "function") return timestamp.toMillis();
   return Number(timestamp) || 0;
+}
+
+function getFriendId(thread) {
+  return thread.friendId || thread.members.find((uid) => uid !== me.uid);
+}
+
+function userThreadSummary(thread, friendId) {
+  return {
+    id: thread.id,
+    friendId,
+    members: thread.members,
+    usernames: thread.usernames,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    lastMessage: "",
+  };
 }

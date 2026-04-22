@@ -1,4 +1,4 @@
-# Threadly Chat
+# NameChat
 
 A GitHub Pages-friendly chat app where people create username-only accounts and start one-on-one chat threads by username.
 
@@ -6,7 +6,7 @@ A GitHub Pages-friendly chat app where people create username-only accounts and 
 
 - Static HTML, CSS, and JavaScript
 - Firebase Anonymous Authentication for account sessions
-- Cloud Firestore for usernames, threads, and realtime messages
+- Firebase Realtime Database for usernames, threads, and live messages
 - No email address required
 
 ## Firebase setup
@@ -14,16 +14,17 @@ A GitHub Pages-friendly chat app where people create username-only accounts and 
 1. Create a Firebase project at <https://console.firebase.google.com/>.
 2. Add a Web app in Project settings.
 3. Enable Authentication, then enable the Anonymous sign-in provider.
-4. Create a Cloud Firestore database.
+4. Create a Realtime Database. Do not create Firestore for this app.
 5. Copy your Web app config into `firebase-config.js`.
-6. Publish the rules from `firestore.rules` in Firestore Rules.
+6. Publish the rules from `database.rules.json` in Realtime Database Rules.
 
 `firebase-config.js` should look like this after setup:
 
 ```js
-window.THREADLY_FIREBASE_CONFIG = {
+window.NAMECHAT_FIREBASE_CONFIG = {
   apiKey: "your-api-key",
   authDomain: "your-project.firebaseapp.com",
+  databaseURL: "https://your-project-default-rtdb.firebaseio.com",
   projectId: "your-project",
   storageBucket: "your-project.appspot.com",
   messagingSenderId: "123456789",
@@ -31,7 +32,7 @@ window.THREADLY_FIREBASE_CONFIG = {
 };
 ```
 
-Firebase web config is safe to include in a public static site. The Firestore rules are what protect your data.
+Firebase web config is safe to include in a public static site. The Realtime Database rules are what protect your data.
 
 ## GitHub Pages deploy
 

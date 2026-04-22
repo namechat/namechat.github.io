@@ -1,11 +1,10 @@
-window.THREADLY_FIREBASE_CONFIG = null;
-
-// After creating a Firebase project, replace null with your app config:
-// window.THREADLY_FIREBASE_CONFIG = {
-//   apiKey: "your-api-key",
-//   authDomain: "your-project.firebaseapp.com",
-//   projectId: "your-project",
-//   storageBucket: "your-project.appspot.com",
-//   messagingSenderId: "123456789",
-//   appId: "1:123456789:web:abcdef123456"
-// };
+window.NAMECHAT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB_3JFUfyQ7t7TY5Xl5M9agATa7QLD-504",
+  authDomain: "namechat-295ea.firebaseapp.com",
+  databaseURL: "https://namechat-295ea-default-rtdb.firebaseio.com",
+  projectId: "namechat-295ea",
+  storageBucket: "namechat-295ea.firebasestorage.app",
+  messagingSenderId: "717387407679",
+  appId: "1:717387407679:web:b33f5c0059887adf3ff38a",
+  measurementId: "G-KEYSYCDEBC",
+};

@@ -1,0 +1,40 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid && newData.child('uid').val() == auth.uid && newData.child('username').isString()"
+      }
+    },
+    "usernames": {
+      "$username": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('uid').val() == auth.uid) || data.child('uid').val() == auth.uid) && newData.child('username').val() == $username"
+      }
+    },
+    "threads": {
+      "$threadId": {
+        ".read": "auth != null && data.child('memberMap').child(auth.uid).val() == true",
+        ".write": "auth != null && ((!data.exists() && newData.child('memberMap').child(auth.uid).val() == true) || data.child('memberMap').child(auth.uid).val() == true) && newData.child('members').hasChildren(['0', '1'])"
+      }
+    },
+    "userThreads": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        "$threadId": {
+          ".write": "auth != null && root.child('threads').child($threadId).child('memberMap').child(auth.uid).val() == true && root.child('threads').child($threadId).child('memberMap').child($uid).val() == true"
+        }
+      }
+    },
+    "messages": {
+      "$threadId": {
+        ".read": "auth != null && root.child('threads').child($threadId).child('memberMap').child(auth.uid).val() == true",
+        "$messageId": {
+          ".write": "auth != null && root.child('threads').child($threadId).child('memberMap').child(auth.uid).val() == true && newData.child('senderId').val() == auth.uid && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 1000"
+        }
+      }
+    }
+  }
+}
